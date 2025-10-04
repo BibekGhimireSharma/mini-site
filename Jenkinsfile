@@ -1,9 +1,7 @@
 pipeline {
   agent any
   environment {
-    // Docker image name with your username
     DOCKER_IMAGE = "vivek3001/mini-site:latest"
-    // Jenkins credentials we'll create later
     DOCKERHUB_USER = "vivek3001"
     DOCKERHUB_PASS = credentials('dockerhub-creds')
   }
@@ -14,25 +12,48 @@ pipeline {
         checkout scm
       }
     }
+
     stage('Build Docker Image') {
       steps {
         echo "Building Docker image..."
-        sh 'docker build -t $DOCKER_IMAGE .'
+        script {
+          if (isUnix()) {
+            sh 'docker build -t $DOCKER_IMAGE .'
+          } else {
+            // Windows: use bat to run docker
+            bat 'docker build -t %DOCKER_IMAGE% .'
+          }
+        }
       }
     }
+
     stage('Push to Docker Hub') {
       steps {
         echo "Pushing image to Docker Hub..."
-        sh '''
-          echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
-          docker push $DOCKER_IMAGE
-        '''
+        script {
+          if (isUnix()) {
+            sh '''
+              echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+              docker push $DOCKER_IMAGE
+            '''
+          } else {
+            // Windows: use bat and windows variables
+            // create a temp login file with password and use it to login (works on Windows)
+            bat """
+              echo %DOCKERHUB_PASS% > pw.txt
+              type pw.txt | docker login -u %DOCKERHUB_USER% --password-stdin
+              docker push %DOCKER_IMAGE%
+              del pw.txt
+            """
+          }
+        }
       }
     }
   }
+
   post {
     always {
-      echo 'Pipeline finished successfully!'
+      echo 'Pipeline finished (success or fail).'
     }
   }
 }
