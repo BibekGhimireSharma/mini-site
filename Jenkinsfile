@@ -8,20 +8,37 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
-        echo "Pulling code from GitHub..."
+        echo "Checkout..."
         checkout scm
       }
     }
 
-    stage('Build Docker Image') {
+    stage('Prepare Docker context') {
       steps {
-        echo "Building Docker image..."
         script {
           if (isUnix()) {
-            sh 'docker build -t $DOCKER_IMAGE .'
+            sh '''
+              docker context use desktop-linux || true
+              docker buildx version || true
+            '''
           } else {
-            // Windows: use bat to run docker
-            bat 'docker build -t %DOCKER_IMAGE% .'
+            // Windows: ensure docker uses desktop-linux context
+            bat '''
+              docker context use desktop-linux || exit 0
+              docker buildx version || exit 0
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Build with buildx (explicit)') {
+      steps {
+        script {
+          if (isUnix()) {
+            sh 'docker buildx build --progress=plain --load -t $DOCKER_IMAGE .'
+          } else {
+            bat 'docker buildx build --progress=plain --load -t %DOCKER_IMAGE% .'
           }
         }
       }
@@ -29,7 +46,6 @@ pipeline {
 
     stage('Push to Docker Hub') {
       steps {
-        echo "Pushing image to Docker Hub..."
         script {
           if (isUnix()) {
             sh '''
@@ -37,23 +53,20 @@ pipeline {
               docker push $DOCKER_IMAGE
             '''
           } else {
-            // Windows: use bat and windows variables
-            // create a temp login file with password and use it to login (works on Windows)
-            bat """
+            bat '''
               echo %DOCKERHUB_PASS% > pw.txt
               type pw.txt | docker login -u %DOCKERHUB_USER% --password-stdin
               docker push %DOCKER_IMAGE%
               del pw.txt
-            """
+            '''
           }
         }
       }
     }
   }
-
   post {
     always {
-      echo 'Pipeline finished (success or fail).'
+      echo 'Pipeline finished (success or fail)'
     }
   }
 }
